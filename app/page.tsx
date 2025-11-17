@@ -9,6 +9,25 @@ type StatusState =
 
 const initialStatus: StatusState = { type: "idle", message: "" };
 
+const SUPPORTED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/x-webp",
+]);
+const SUPPORTED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
+
+const isSupportedFile = (file: File | null) => {
+  if (!file) return false;
+  const type = (file.type || "").toLowerCase();
+  if (type && SUPPORTED_MIME_TYPES.has(type)) {
+    return true;
+  }
+  const parts = (file.name || "").toLowerCase().split(".");
+  const ext = parts.length > 1 ? parts.pop() : "";
+  return !!ext && SUPPORTED_EXTENSIONS.has(ext);
+};
+
 export default function Home() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
@@ -37,8 +56,11 @@ export default function Home() {
       return;
     }
 
-    if (selectedFile.type !== "image/jpeg") {
-      setStatus({ type: "error", message: "JPEG 形式のみ対応しています。" });
+    if (!isSupportedFile(selectedFile)) {
+      setStatus({
+        type: "error",
+        message: "JPEG / PNG / WebP 形式のみ対応しています。",
+      });
       return;
     }
 
@@ -119,12 +141,13 @@ export default function Home() {
             <input
               id="file"
               type="file"
-              accept="image/jpeg"
+              accept="image/jpeg,image/png,image/webp"
               onChange={handleFileChange}
               className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm file:mr-4 file:cursor-pointer file:rounded-md file:border-0 file:bg-blue-600 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white"
             />
             <p className="text-xs text-slate-500">
-              対応形式: JPEG（.jpg, .jpeg）
+              対応形式: JPEG（.jpg, .jpeg）/ PNG（.png）/ WebP（.webp） ※出力は常に
+              JPEG です
             </p>
           </div>
 

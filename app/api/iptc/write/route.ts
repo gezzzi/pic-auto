@@ -6,6 +6,7 @@ import path from "path";
 import crypto from "crypto";
 import { ExiftoolProcess } from "node-exiftool";
 import distExiftool from "dist-exiftool";
+import sharp from "sharp";
 
 type IPTCWritePayload = {
   title?: string;
@@ -13,6 +14,9 @@ type IPTCWritePayload = {
 };
 
 const JPEG_MIME = "image/jpeg";
+const PNG_MIME = "image/png";
+const WEBP_MIME = "image/webp";
+const WEBP_MIME_ALT = "image/x-webp";
 
 export const runtime = "nodejs";
 
@@ -35,6 +39,36 @@ const resolveDistExiftoolPath = (rawPath: string): string => {
   return rawPath;
 };
 
+const getUploadFormat = (
+  file: File,
+): "jpeg" | "png" | "webp" | null => {
+  const type = (file.type || "").toLowerCase();
+
+  if (type === JPEG_MIME) {
+    return "jpeg";
+  }
+
+  if (type === PNG_MIME) {
+    return "png";
+  }
+
+  if (type === WEBP_MIME || type === WEBP_MIME_ALT) {
+    return "webp";
+  }
+
+  const extension = path.extname(file.name || "").toLowerCase();
+  if (extension === ".jpg" || extension === ".jpeg") {
+    return "jpeg";
+  }
+  if (extension === ".png") {
+    return "png";
+  }
+  if (extension === ".webp") {
+    return "webp";
+  }
+  return null;
+};
+
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
 
@@ -46,9 +80,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (file.type !== JPEG_MIME) {
+  const uploadFormat = getUploadFormat(file);
+  if (!uploadFormat) {
     return NextResponse.json(
-      { error: "JPEG 形式（.jpg, .jpeg）のみ対応しています。" },
+      { error: "JPEG / PNG / WebP 形式のみ対応しています。" },
       { status: 400 },
     );
   }
@@ -74,7 +109,11 @@ export async function POST(request: NextRequest) {
   }
 
   const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  let buffer: Buffer = Buffer.from(arrayBuffer);
+
+  if (uploadFormat === "png" || uploadFormat === "webp") {
+    buffer = await sharp(buffer).jpeg({ quality: 95 }).toBuffer();
+  }
 
   const tempFilePath = path.join(
     os.tmpdir(),
@@ -96,6 +135,8 @@ export async function POST(request: NextRequest) {
 
     if (payload.tags) {
       metadataUpdates["XMP-dc:Subject"] = payload.tags;
+      metadataUpdates["IPTC:Keywords"] = payload.tags;
+      metadataUpdates["IPTC:CodedCharacterSet"] = "UTF8";
     }
 
     if (Object.keys(metadataUpdates).length > 0) {

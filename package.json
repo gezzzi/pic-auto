@@ -13,7 +13,8 @@
     "next": "16.0.3",
     "node-exiftool": "^2.3.0",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
