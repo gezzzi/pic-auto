@@ -5,8 +5,9 @@ const nextConfig: NextConfig = {
     serverComponentsExternalPackages: ["node-exiftool", "dist-exiftool"],
   },
   outputFileTracingIncludes: {
-    "/api/iptc/write": [
+    "/app/api/iptc/write/route": [
       "./node_modules/dist-exiftool/**/*",
+      "./node_modules/dist-exiftool/node_modules/exiftool.pl/vendor/**/*",
       "./node_modules/exiftool.pl/vendor/**/*",
       "./node_modules/exiftool.exe/vendor/**/*",
     ],
