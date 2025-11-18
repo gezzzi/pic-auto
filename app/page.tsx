@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { ChangeEvent, useEffect, useState } from "react";
+import JSZip from "jszip";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 
 type StatusState =
   | { type: "idle"; message: "" }
@@ -17,7 +18,7 @@ const SUPPORTED_MIME_TYPES = new Set([
   "image/x-webp",
 ]);
 const SUPPORTED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
-const MAX_GEMINI_FILES = 3;
+const MAX_GEMINI_FILES = 50;
 
 const isSupportedFile = (file: File | null) => {
   if (!file) return false;
@@ -42,10 +43,27 @@ const getDownloadName = (file: File) => {
   return `${base}-iptc.jpg`;
 };
 
+const getFileSignature = (file: File) => {
+  const name = file.name || "image";
+  return `${name}-${file.size}-${file.lastModified}`;
+};
+
+const downloadBlob = (blob: Blob, filename: string) => {
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(downloadUrl);
+};
+
 type FileEntry = {
   id: string;
   file: File;
   previewUrl: string;
+  signature: string;
   title: string;
   tags: string;
   writeStatus: StatusState;
@@ -62,16 +80,29 @@ type GeminiApiResponse = {
   error?: string;
 };
 
+type WriteMetadataOptions = {
+  skipDownload?: boolean;
+};
+
+type WriteResult =
+  | { success: true; blob: Blob; downloadName: string }
+  | { success: false };
+
 export default function Home() {
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
   const [aiStatus, setAiStatus] = useState<StatusState>(initialStatus);
   const [bulkStatus, setBulkStatus] = useState<StatusState>(initialStatus);
+  const entriesRef = useRef<FileEntry[]>([]);
+
+  useEffect(() => {
+    entriesRef.current = fileEntries;
+  }, [fileEntries]);
 
   useEffect(() => {
     return () => {
-      fileEntries.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
+      entriesRef.current.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
     };
-  }, [fileEntries]);
+  }, []);
 
   const resetAiStatus = () => setAiStatus(initialStatus);
   const resetBulkStatus = () => setBulkStatus(initialStatus);
@@ -80,15 +111,7 @@ export default function Home() {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
 
-    if (files.length === 0) {
-      setFileEntries((prev) => {
-        prev.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
-        return [];
-      });
-      resetAiStatus();
-      resetBulkStatus();
-      return;
-    }
+    if (files.length === 0) return;
 
     const supported = files.filter(isSupportedFile);
     if (supported.length !== files.length) {
@@ -96,39 +119,58 @@ export default function Home() {
     } else {
       resetAiStatus();
     }
-    resetBulkStatus();
 
-    let limited = supported;
-    if (supported.length > MAX_GEMINI_FILES) {
-      limited = supported.slice(0, MAX_GEMINI_FILES);
-      setAiStatus({
-        type: "error",
-        message: `Gemini 解析に投げられるのは最大 ${MAX_GEMINI_FILES} 枚です。先頭 ${MAX_GEMINI_FILES} 枚のみを使用します。`,
-      });
-    }
-
-    if (limited.length === 0) {
-      setFileEntries((prev) => {
-        prev.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
-        return [];
-      });
-      resetBulkStatus();
+    if (fileEntries.length >= MAX_GEMINI_FILES) {
+      setAiStatus({ type: "error", message: `これ以上追加できません（最大 ${MAX_GEMINI_FILES} 枚）。` });
       return;
     }
 
-    const nextEntries = limited.map((file) => ({
-      id: createClientId(),
-      file,
-      previewUrl: URL.createObjectURL(file),
-      title: "",
-      tags: "",
-      writeStatus: initialStatus,
-    }));
+    const existingSignatures = new Set(fileEntries.map((entry) => entry.signature));
+    let availableSlots = MAX_GEMINI_FILES - fileEntries.length;
+    const newEntries: FileEntry[] = [];
+    let skippedDuplicates = 0;
 
-    setFileEntries((prev) => {
-      prev.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
-      return nextEntries;
-    });
+    for (const file of supported) {
+      if (availableSlots <= 0) {
+        break;
+      }
+      const signature = getFileSignature(file);
+      if (existingSignatures.has(signature)) {
+        skippedDuplicates += 1;
+        continue;
+      }
+      newEntries.push({
+        id: createClientId(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        signature,
+        title: "",
+        tags: "",
+        writeStatus: initialStatus,
+      });
+      existingSignatures.add(signature);
+      availableSlots -= 1;
+    }
+
+    if (newEntries.length === 0) {
+      if (skippedDuplicates > 0) {
+        setAiStatus({ type: "error", message: "すでに追加されている画像です。" });
+      } else {
+        setAiStatus({ type: "error", message: `これ以上追加できません（最大 ${MAX_GEMINI_FILES} 枚）。` });
+      }
+      return;
+    }
+
+    if (skippedDuplicates > 0 || newEntries.length < supported.length) {
+      setAiStatus({
+        type: "error",
+        message: `一部の画像はスキップされました。現在の上限は ${MAX_GEMINI_FILES} 枚です。`,
+      });
+    } else {
+      resetAiStatus();
+    }
+
+    setFileEntries((prev) => [...prev, ...newEntries]);
     resetBulkStatus();
   };
 
@@ -143,6 +185,38 @@ export default function Home() {
   const handleTagsChange = (entryId: string, value: string) => {
     updateEntry(entryId, (entry) => ({ ...entry, tags: value, writeStatus: initialStatus }));
   };
+
+const handleRemoveEntry = (entryId: string) => {
+  if (entryId === "__all__") {
+    setFileEntries((entries) => {
+      entries.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
+      return [];
+    });
+    resetAiStatus();
+    resetBulkStatus();
+    return;
+  }
+
+  let removed = false;
+  let nextLength = fileEntries.length;
+  setFileEntries((entries) => {
+    const target = entries.find((entry) => entry.id === entryId);
+    if (!target) {
+      nextLength = entries.length;
+      return entries;
+    }
+    removed = true;
+    URL.revokeObjectURL(target.previewUrl);
+    const next = entries.filter((entry) => entry.id !== entryId);
+    nextLength = next.length;
+    return next;
+  });
+
+  if (removed && nextLength === 0) {
+    resetAiStatus();
+    resetBulkStatus();
+  }
+};
 
   const handleAskAI = async () => {
     if (fileEntries.length === 0) {
@@ -257,9 +331,12 @@ export default function Home() {
     }
   };
 
-  const handleWriteMetadata = async (entryId: string): Promise<boolean> => {
+  const handleWriteMetadata = async (
+    entryId: string,
+    options?: WriteMetadataOptions,
+  ): Promise<WriteResult> => {
     const entry = fileEntries.find((item) => item.id === entryId);
-    if (!entry) return false;
+    if (!entry) return { success: false };
 
     updateEntry(entryId, (current) => ({
       ...current,
@@ -291,21 +368,20 @@ export default function Home() {
       }
 
       const blob = await response.blob();
-      const downloadUrl = URL.createObjectURL(blob);
+      const downloadName = getDownloadName(entry.file);
 
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = getDownloadName(entry.file);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(downloadUrl);
+      if (!options?.skipDownload) {
+        downloadBlob(blob, downloadName);
+      }
 
       updateEntry(entryId, (current) => ({
         ...current,
-        writeStatus: { type: "success", message: "書き込みが完了しました。" },
+        writeStatus: {
+          type: "success",
+          message: options?.skipDownload ? "書き込み済み (ZIP に追加)" : "書き込みが完了しました。",
+        },
       }));
-      return true;
+      return { success: true, blob, downloadName };
     } catch (error) {
       const message =
         error instanceof Error && typeof error.message === "string"
@@ -317,7 +393,7 @@ export default function Home() {
       }));
     }
 
-    return false;
+    return { success: false };
   };
 
   const handleWriteAll = async () => {
@@ -328,22 +404,31 @@ export default function Home() {
 
     setBulkStatus({ type: "loading", message: "順番に書き込み中…" });
     let successCount = 0;
+    const zip = new JSZip();
 
     for (const entry of fileEntries) {
-      const result = await handleWriteMetadata(entry.id);
-      if (result) {
+      const result = await handleWriteMetadata(entry.id, { skipDownload: true });
+      if (result.success) {
         successCount += 1;
+        zip.file(result.downloadName, result.blob);
       }
     }
 
-    if (successCount === fileEntries.length) {
-      setBulkStatus({ type: "success", message: `${successCount} 件すべて書き込みました。` });
-    } else if (successCount === 0) {
+    if (successCount === 0) {
       setBulkStatus({ type: "error", message: "書き込みに失敗しました。各画像のステータスをご確認ください。" });
+      return;
+    }
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    const zipName = `iptc-batch-${new Date().toISOString().replace(/[:.]/g, "-")}.zip`;
+    downloadBlob(zipBlob, zipName);
+
+    if (successCount === fileEntries.length) {
+      setBulkStatus({ type: "success", message: `${successCount} 件すべて ZIP にまとめてダウンロードしました。` });
     } else {
       setBulkStatus({
         type: "error",
-        message: `${fileEntries.length - successCount} 件でエラーが発生しました。各画像のステータスをご確認ください。`,
+        message: `${fileEntries.length - successCount} 件でエラーが発生しました。成功したファイルのみ ZIP に含まれています。`,
       });
     }
   };
@@ -377,7 +462,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
               onClick={handleAskAI}
@@ -386,9 +471,10 @@ export default function Home() {
             >
               Gemini でタイトルとタグを生成
             </button>
-            <p className="text-xs text-slate-500">
-              1 回のリクエストで最大 {MAX_GEMINI_FILES} 枚をまとめて解析します。
-            </p>
+            <div className="text-xs text-slate-500">
+              <p>1 回のリクエストで最大 {MAX_GEMINI_FILES} 枚をまとめて解析します。</p>
+              <p>現在の枚数: {fileEntries.length} / {MAX_GEMINI_FILES}</p>
+            </div>
           </div>
 
           <div className="min-h-[1.5rem] text-sm">
@@ -400,14 +486,24 @@ export default function Home() {
           {fileEntries.length > 0 && (
             <div className="rounded-xl border border-slate-200 bg-white/70 p-5">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <button
-                  type="button"
-                  onClick={handleWriteAll}
-                  disabled={bulkStatus.type === "loading"}
-                  className="flex w-full items-center justify-center rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-emerald-300 sm:w-auto"
-                >
-                  表示中のすべての画像に書き込んでダウンロード
-                </button>
+                <div className="flex w-full flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={handleWriteAll}
+                    disabled={bulkStatus.type === "loading"}
+                    className="flex w-full items-center justify-center rounded-lg bg-emerald-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                  >
+                    表示中のすべての画像に書き込んでダウンロード
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveEntry("__all__")}
+                    disabled={bulkStatus.type === "loading"}
+                    className="flex w-full items-center justify-center rounded-lg border border-red-200 px-4 py-3 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed"
+                  >
+                    全削除
+                  </button>
+                </div>
                 <p className="text-xs text-slate-500">各ファイルは順番に処理されます。</p>
               </div>
               <div className="min-h-[1.25rem] text-sm">
@@ -426,24 +522,35 @@ export default function Home() {
             <section className="mt-10 space-y-8">
               {fileEntries.map((entry) => (
                 <div key={entry.id} className="rounded-2xl border border-slate-200 bg-white/80 p-6 shadow-sm">
-                  <div className="flex flex-col gap-4 md:flex-row">
-                    <div className="flex-shrink-0">
-                      <Image
-                        src={entry.previewUrl}
-                        alt={entry.file.name || "preview"}
-                        width={320}
-                        height={320}
-                        sizes="160px"
-                        unoptimized
-                        className="h-40 w-40 rounded-xl object-cover object-center"
-                      />
-                    </div>
-                    <div className="flex-1 space-y-2 text-sm text-slate-600">
-                      <p className="font-semibold text-slate-800">{entry.file.name || "image"}</p>
-                      <p>書き込み後のファイル名: {getDownloadName(entry.file)}</p>
-                      <p>ファイルサイズ: {(entry.file.size / 1024).toFixed(1)} KB</p>
+                <div className="flex flex-col gap-4 md:flex-row">
+                  <div className="flex-shrink-0">
+                    <Image
+                      src={entry.previewUrl}
+                      alt={entry.file.name || "preview"}
+                      width={320}
+                      height={320}
+                      sizes="160px"
+                      unoptimized
+                      className="h-40 w-40 rounded-xl object-cover object-center"
+                    />
+                  </div>
+                  <div className="flex-1 space-y-2 text-sm text-slate-600">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-slate-800">{entry.file.name || "image"}</p>
+                        <p>書き込み後のファイル名: {getDownloadName(entry.file)}</p>
+                        <p>ファイルサイズ: {(entry.file.size / 1024).toFixed(1)} KB</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveEntry(entry.id)}
+                        className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                      >
+                        削除
+                      </button>
                     </div>
                   </div>
+                </div>
 
                   <div className="mt-6 space-y-4">
                     <div className="space-y-2">
