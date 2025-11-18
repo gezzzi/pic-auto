@@ -20,6 +20,17 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Windows での自動起動（bat）
+
+Windows 環境では `pic-auto.bat` をダブルクリック（または任意のディレクトリから `C:\path\to\pic-auto.bat` を実行）するだけで、以下を自動で行えます:
+
+1. `node_modules` が存在しない場合は `npm install` を実行
+2. `.next` ディレクトリが無い場合は `npm run build` を実行
+3. 新しいコマンドウィンドウで `npm run start` を起動（本番モード）
+4. サーバー（デフォルト: [http://localhost:3000](http://localhost:3000)）の起動を待機し、起動後にブラウザを自動で開く
+
+バッチファイルを別の場所に移動した場合は、プロジェクトルートを第1引数に渡せば利用できます（例: `pic-auto.bat "D:\repos\pic-auto"`）。サーバー停止時は bat ファイルによって開かれたコマンドウィンドウを閉じてください。
+
 ## Environment Variables
 
 Gemini を利用したタイトル／タグ生成には API キーが必要です。Google AI Studio で取得したキーを `.env.local` に設定してください。
