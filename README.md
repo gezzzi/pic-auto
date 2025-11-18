@@ -20,6 +20,16 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Environment Variables
+
+Gemini を利用したタイトル／タグ生成には API キーが必要です。Google AI Studio で取得したキーを `.env.local` に設定してください。
+
+```
+GEMINI_API_KEY=your_api_key_here
+```
+
+Gemini 2.5 Flash と Files API を利用しているため、1 回の解析で最大 3 枚の画像を送信する構成になっています。
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
