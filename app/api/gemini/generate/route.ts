@@ -8,7 +8,7 @@ import { GoogleGenerativeAI, type Part } from "@google/generative-ai";
 
 const MODEL_NAME = "gemini-2.5-flash";
 const MAX_FILES = 50;
-const MAX_TAGS = 5;
+const MAX_TAGS = 15;
 
 const SUPPORTED_MIME_TYPES = new Set([
   "image/jpeg",
@@ -24,13 +24,13 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
   webp: "image/webp",
 };
 
-const SYSTEM_PROMPT = `あなたは写真用メタデータのアシスタントです。各画像について以下を返してください。
-- タイトル: 日本語で 40 文字以内の簡潔な説明。
-- tags: 画像を的確に表す 5 個の日本語キーワード。半角カンマや記号は不要。
+const SYSTEM_PROMPT = `You are a photo metadata assistant. For each image return:
+- title: a concise English description (up to ~40 characters)
+- tags: fifteen English keywords that best describe the image, ordered from most important to least important. Do not include symbols or punctuation.
+- All output must be in English.
 
-出力は JSON のみとし、
-{"results":[{"id":"画像ID","title":"タイトル","tags":["タグ1",...,"タグ5"]}]}
-の形式で返してください。`;
+Respond only with JSON in the shape:
+{"results":[{"id":"imageId","title":"Title","tags":["tag1",...,"tag15"]}]}`;
 
 export const runtime = "nodejs";
 
@@ -252,11 +252,11 @@ export async function POST(request: NextRequest) {
 
     const promptIntro =
       preparedFiles.length === 1
-        ? "以下の画像についてタイトルとタグを生成してください。"
-        : `以下の ${preparedFiles.length} 枚の画像について、それぞれタイトルとタグを生成してください。`;
+        ? "Generate an English title and fifteen English tags (ordered most important to least important) for the image below."
+        : `Generate an English title and fifteen English tags (ordered most important to least important) for each of the ${preparedFiles.length} images below.`;
 
     const parts: Part[] = [
-      { text: `${promptIntro}\n各画像の ID を必ず参照し、結果の JSON には同じ ID を設定してください。` },
+      { text: `${promptIntro}\nUse the provided image ID and include it in the JSON results.` },
     ];
 
     for (const prepared of preparedFiles) {
