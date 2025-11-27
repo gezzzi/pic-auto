@@ -18,7 +18,7 @@ const SUPPORTED_MIME_TYPES = new Set([
   "image/x-webp",
 ]);
 const SUPPORTED_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
-const MAX_GEMINI_FILES = 50;
+const MAX_GEMINI_FILES = 260;
 
 const isSupportedFile = (file: File | null) => {
   if (!file) return false;

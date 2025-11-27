@@ -7,7 +7,7 @@ import {
 import { GoogleGenerativeAI, type Part } from "@google/generative-ai";
 
 const MODEL_NAME = "gemini-2.5-flash";
-const MAX_FILES = 50;
+const MAX_FILES = 260;
 const MAX_TAGS = 15;
 
 const SUPPORTED_MIME_TYPES = new Set([
